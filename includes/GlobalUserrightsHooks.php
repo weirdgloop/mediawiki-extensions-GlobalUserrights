@@ -160,10 +160,10 @@ class GlobalUserrightsHooks {
 	 * @return bool
 	 */
 	public static function onLoadExtensionSchemaUpdates( DatabaseUpdater $updater ) {
-		$dir = __DIR__;
-		$updater->addExtensionTable( 'global_user_groups', $dir . '/../sql/global_user_groups.sql' );
+		$dir = dirname( __DIR__ );
+		$updater->addExtensionTable( 'global_user_groups', $dir . '/sql/global_user_groups.sql' );
 
-		$dir .= '/../db_patches';
+		$dir .= '/db_patches';
 
 		// Update the table with the new definitions
 		// This ensures backwards compatibility

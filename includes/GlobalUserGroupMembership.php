@@ -322,9 +322,9 @@ class GlobalUserGroupMembership extends UserGroupMembership {
 		}
 
 		if ( $userName !== null ) {
-			$groupName = RequestContext::getMain()->getLanguage()->getGroupMemberName( $group, $userName );
+			$groupName = self::getGroupMemberName( $group, $userName );
 		} else {
-			$groupName = RequestContext::getMain()->getLanguage()->getGroupName( $group );
+			$groupName = self::getGroupName( $group );
 		}
 
 		// link to the group description page, if it exists

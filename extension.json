@@ -33,7 +33,7 @@
 		"LoadExtensionSchemaUpdates": "GlobalUserrightsHooks::onLoadExtensionSchemaUpdates",
 		"UserEffectiveGroups": "GlobalUserrightsHooks::onUserEffectiveGroups",
 		"SpecialListusersQueryInfo": "GlobalUserrightsHooks::onSpecialListusersQueryInfo",
-		"SiteStatsNumberInGroup": "GlobalUserrightsHooks::updateStatsForGUR",
+		"SiteStatsNumberInGroup": "GlobalUserrightsHooks::onSiteStatsNumberInGroup",
 		"UserIsBot": "GlobalUserrightsHooks::onUserIsBot",
 		"UsersPagerDoBatchLookups": "GlobalUserrightsHooks::onUsersPagerDoBatchLookups"
 	},

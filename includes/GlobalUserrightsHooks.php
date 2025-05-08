@@ -139,21 +139,21 @@ class GlobalUserrightsHooks {
 	 * Fixes Special:Statistics so that the correct amount of global group members
 	 * is shown there.
 	 *
-	 * @param string|null &$hit
+	 * @param int &$count
 	 * @param string $group User group name
-	 * @return bool
 	 */
-	public static function updateStatsForGUR( &$hit, $group ) {
-		if ( $group == 'staff' || $group == 'globalbot' ) {
-			$dbr = MediaWikiServices::getInstance()->getDBLoadBalancer()->getConnection( DB_REPLICA );
-			$hit = $dbr->selectField(
-				'global_user_groups',
-				'COUNT(*)',
-				[ 'gug_group' => $group ],
-				__METHOD__
-			);
-		}
-		return true;
+	public static function onSiteStatsNumberInGroup( &$count, $group ) {
+		$dbr = MediaWikiServices::getInstance()->getDBLoadBalancer()->getConnection( DB_REPLICA );
+		$count += (int)$dbr->newSelectQueryBuilder()
+			->select( 'COUNT(*)' )
+			->from( 'global_user_groups' )
+			->where(
+				[
+					'gug_group' => $group
+				]
+			)
+			->caller( __METHOD__ )
+			->fetchField();
 	}
 
 	/**

@@ -177,6 +177,36 @@ class GlobalUserrights extends UserrightsPage {
 	}
 
 	/**
+	 * Display a HTMLUserTextField form to allow searching for a named user only
+	 */
+	protected function switchForm() {
+		$formDescriptor = [
+			'user' => [
+				'class' => HTMLUserTextField::class,
+				'label-message' => 'userrights-user-editname',
+				'name' => 'user',
+				'ipallowed' => true,
+				'iprange' => true,
+				'excludetemp' => true, // Do not show temp users: T341684
+				'autofocus' => $this->mFetchedUser === null,
+				'default' => $this->mTarget,
+			]
+		];
+
+		$htmlForm = HTMLForm::factory( 'ooui', $formDescriptor, $this->getContext() );
+		$htmlForm
+			->setMethod( 'GET' )
+			->setAction( wfScript() )
+			->setName( 'uluser' )
+			->setTitle( SpecialPage::getTitleFor( 'GlobalUserrights' ) )
+			->setWrapperLegendMsg( 'userrights-lookup-user' )
+			->setId( 'mw-userrights-form1' )
+			->setSubmitTextMsg( 'editusergroup' )
+			->prepareForm()
+			->displayForm( true );
+	}
+
+	/**
 	 * @param UserIdentity $user
 	 * @param array $groups
 	 * @param array $groupMemberships

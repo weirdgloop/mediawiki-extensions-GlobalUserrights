@@ -1,5 +1,6 @@
 <?php
 
+use MediaWiki\Html\Html;
 use MediaWiki\Language\FormatterFactory;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Output\OutputPage;
@@ -273,7 +274,7 @@ class GlobalUserrights extends UserrightsPage {
 	 */
 	protected function showLogFragment( $user, $output ): void {
 		$log = new LogPage( 'gblrights' );
-		$output->addHTML( Xml::element( 'h2', null, $log->getName()->text() ) );
+		$output->addHTML( Html::element( 'h2', [], $log->getName()->text() ) );
 		LogEventsList::showLogExtract( $output, 'gblrights', Title::makeTitle( NS_USER, $user->getName() ) );
 	}
 

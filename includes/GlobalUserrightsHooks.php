@@ -84,7 +84,8 @@ class GlobalUserrightsHooks {
 		if ( isset( $query['conds']['ug_group'] ) ) {
 			unset( $query['conds']['ug_group'] );
 			unset( $query['join_conds']['user_groups'] );
-			if ( ($key = array_search( 'user_groups', $query['tables'], true ) ) !== false ) {
+			$key = array_search( 'user_groups', $query['tables'], true );
+			if ( $key !== false ) {
 				unset( $query['tables'][$key] );
 			}
 
@@ -92,15 +93,15 @@ class GlobalUserrightsHooks {
 				$dbr->newUnionQueryBuilder()
 					->add(
 						$dbr->newSelectQueryBuilder()
-							->select( ['ug_user', 'ug_expiry' ] )
+							->select( [ 'ug_user', 'ug_expiry' ] )
 							->from( 'user_groups' )
-							->where( ['ug_group' => $that->requestedGroup ] )
+							->where( [ 'ug_group' => $that->requestedGroup ] )
 					)
 					->add(
 						$dbr->newSelectQueryBuilder()
 							->select( [ 'ug_user' => 'gug_user', 'ug_expiry' => 'gug_expiry' ] )
 							->from( 'global_user_groups' )
-							->where( ['gug_group' => $that->requestedGroup ] )
+							->where( [ 'gug_group' => $that->requestedGroup ] )
 					)
 					->caller( __METHOD__ )
 					->getSQL()

@@ -2,6 +2,7 @@
 
 use MediaWiki\MediaWikiServices;
 use MediaWiki\User\UserIdentity;
+use Wikimedia\Rdbms\Subquery;
 
 class GlobalUserrightsHooks {
 
@@ -79,17 +80,32 @@ class GlobalUserrightsHooks {
 	public static function onSpecialListusersQueryInfo( $that, &$query ) {
 		$dbr = MediaWikiServices::getInstance()->getDBLoadBalancer()->getConnection( DB_REPLICA );
 
-		$query['tables'][] = 'global_user_groups';
-		$query['join_conds']['global_user_groups'] = [
-			'LEFT JOIN',
-			'user_id = gug_user'
-		];
-
-		// if there's a $query['conds']['ug_group'], destroy it and make one that accounts for gug_group
+		// if there's a $query['conds']['ug_group'], destroy it and create a join that accounts for gug_group
 		if ( isset( $query['conds']['ug_group'] ) ) {
 			unset( $query['conds']['ug_group'] );
-			$reqgrp = $dbr->addQuotes( $that->requestedGroup );
-			$query['conds'][] = 'ug_group = ' . $reqgrp . 'OR gug_group = ' . $reqgrp;
+			unset( $query['join_conds']['user_groups'] );
+			if ( ($key = array_search( 'user_groups', $query['tables'], true ) ) !== false ) {
+				unset( $query['tables'][$key] );
+			}
+
+			$query['tables']['tmp'] = new Subquery(
+				$dbr->newUnionQueryBuilder()
+					->add(
+						$dbr->newSelectQueryBuilder()
+							->select( ['ug_user', 'ug_expiry' ] )
+							->from( 'user_groups' )
+							->where( ['ug_group' => $that->requestedGroup ] )
+					)
+					->add(
+						$dbr->newSelectQueryBuilder()
+							->select( [ 'ug_user' => 'gug_user', 'ug_expiry' => 'gug_expiry' ] )
+							->from( 'global_user_groups' )
+							->where( ['gug_group' => $that->requestedGroup ] )
+					)
+					->caller( __METHOD__ )
+					->getSQL()
+			);
+			$query['join_conds']['tmp'] = [ 'INNER JOIN', 'user_id = tmp.ug_user' ];
 		}
 
 		return true;

@@ -4,6 +4,7 @@ use MediaWiki\Html\Html;
 use MediaWiki\Language\FormatterFactory;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Output\OutputPage;
+use MediaWiki\Specials\SpecialUserRights;
 use MediaWiki\Title\Title;
 use MediaWiki\User\MultiFormatUserIdentityLookup;
 use MediaWiki\User\UserFactory;
@@ -25,7 +26,7 @@ use MediaWiki\Watchlist\WatchlistManager;
  * @note Some of the code based on stuff by Lukasz 'TOR' Garczewski, as well as SpecialUserrights.php and CentralAuth
  */
 
-class GlobalUserrights extends UserrightsPage {
+class GlobalUserrights extends SpecialUserRights {
 
 	public function __construct(
 		UserGroupManagerFactory $userGroupManagerFactory,

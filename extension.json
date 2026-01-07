@@ -12,9 +12,6 @@
 	"requires": {
 		"MediaWiki": ">= 1.35.3"
 	},
-	"SpecialPages": {
-		"GlobalUserrights": "GlobalUserrights"
-	},
 	"MessagesDirs": {
 		"GlobalUserrights": [
 			"i18n"
@@ -24,7 +21,6 @@
 		"GlobalUserrightsAlias": "GlobalUserrights.alias.php"
 	},
 	"AutoloadClasses": {
-		"GlobalUserrights": "includes/GlobalUserrights.php",
 		"GlobalUserrightsHooks": "includes/GlobalUserrightsHooks.php",
 		"GlobalUserGroupMembership": "includes/GlobalUserGroupMembership.php",
 		"GlobalRightsLogFormatter": "includes/GlobalRightsLogFormatter.php"

@@ -12,21 +12,6 @@
 	"requires": {
 		"MediaWiki": ">= 1.40"
 	},
-	"SpecialPages": {
-		"GlobalUserrights": {
-			"class": "GlobalUserrights",
-			"services": [
-				"UserGroupManagerFactory",
-				"UserNameUtils",
-				"UserNamePrefixSearch",
-				"UserFactory",
-				"WatchlistManager",
-				"UserGroupAssignmentService",
-				"MultiFormatUserIdentityLookup",
-				"FormatterFactory"
-			]
-		}
-	},
 	"MessagesDirs": {
 		"GlobalUserrights": [
 			"i18n"
@@ -36,7 +21,6 @@
 		"GlobalUserrightsAlias": "GlobalUserrights.alias.php"
 	},
 	"AutoloadClasses": {
-		"GlobalUserrights": "includes/GlobalUserrights.php",
 		"GlobalUserrightsHooks": "includes/GlobalUserrightsHooks.php",
 		"GlobalUserGroupMembership": "includes/GlobalUserGroupMembership.php",
 		"GlobalRightsLogFormatter": "includes/GlobalRightsLogFormatter.php"

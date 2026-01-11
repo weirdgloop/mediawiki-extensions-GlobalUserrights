@@ -16,12 +16,12 @@
 		"GlobalUserrights": {
 			"class": "GlobalUserrights",
 			"services": [
+				"CentralIdLookupFactory",
 				"UserGroupManagerFactory",
 				"UserNameUtils",
 				"UserNamePrefixSearch",
 				"UserFactory",
-				"WatchlistManager",
-				"UserGroupAssignmentService",
+				"GlobalUserrights.GlobalUserGroupAssignmentService",
 				"MultiFormatUserIdentityLookup",
 				"FormatterFactory"
 			]
@@ -38,6 +38,7 @@
 	"AutoloadClasses": {
 		"GlobalUserrights": "includes/GlobalUserrights.php",
 		"GlobalUserrightsHooks": "includes/GlobalUserrightsHooks.php",
+		"GlobalUserGroupAssignmentService": "includes/GlobalUserGroupAssignmentService.php",
 		"GlobalUserGroupMembership": "includes/GlobalUserGroupMembership.php",
 		"GlobalRightsLogFormatter": "includes/GlobalRightsLogFormatter.php"
 	},
@@ -69,5 +70,8 @@
 			"userrights-global": true
 		}
 	},
+	"ServiceWiringFiles": [
+		"includes/ServiceWiring.php"
+	],
 	"manifest_version": 1
 }

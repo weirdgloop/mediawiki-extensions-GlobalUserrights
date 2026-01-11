@@ -1,214 +1,233 @@
 <?php
+/**
+ * @license GPL-2.0-or-later
+ * @file
+ * @author Nathaniel Herman <redwwjd@yahoo.com>
+ * @copyright Copyright © 2008 Nathaniel Herman
+ * @note Some of the code based on stuff by Lukasz 'TOR' Garczewski, as well as SpecialUserrights.php and CentralAuth
+ */
 
+use MediaWiki\Exception\PermissionsError;
+use MediaWiki\Exception\UserBlockedError;
 use MediaWiki\Html\Html;
+use MediaWiki\HTMLForm\Field\HTMLUserTextField;
+use MediaWiki\HTMLForm\HTMLForm;
 use MediaWiki\Language\FormatterFactory;
-use MediaWiki\MediaWikiServices;
-use MediaWiki\Output\OutputPage;
-use MediaWiki\Specials\SpecialUserRights;
+use MediaWiki\Linker\Linker;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\SpecialPage\UserGroupsSpecialPage;
+use MediaWiki\Status\Status;
+use MediaWiki\Status\StatusFormatter;
 use MediaWiki\Title\Title;
+use MediaWiki\User\CentralId\CentralIdLookupFactory;
 use MediaWiki\User\MultiFormatUserIdentityLookup;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserGroupAssignmentService;
+use MediaWiki\User\UserGroupManager;
 use MediaWiki\User\UserGroupManagerFactory;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserNamePrefixSearch;
 use MediaWiki\User\UserNameUtils;
-use MediaWiki\Watchlist\WatchlistManager;
 
 /**
  * Special:GlobalUserrights, Special:UserRights for global groups
  *
- * @file
- * @ingroup Extensions
- * @author Nathaniel Herman <redwwjd@yahoo.com>
- * @copyright Copyright © 2008 Nathaniel Herman
- * @license GPL-2.0-or-later
- * @note Some of the code based on stuff by Lukasz 'TOR' Garczewski, as well as SpecialUserrights.php and CentralAuth
+ * @ingroup SpecialPage
  */
+class GlobalUserrights extends UserGroupsSpecialPage {
+	/**
+	 * @var UserIdentity The user object of the target username.
+	 */
+	protected UserIdentity $targetUser;
 
-class GlobalUserrights extends SpecialUserRights {
+	/** @var list<string> Names of the groups the current target is automatically in */
+	private array $autopromoteGroups = [];
+
+	private StatusFormatter $statusFormatter;
 
 	public function __construct(
-		UserGroupManagerFactory $userGroupManagerFactory,
-		UserNameUtils $userNameUtils,
-		UserNamePrefixSearch $userNamePrefixSearch,
-		UserFactory $userFactory,
-		WatchlistManager $watchlistManager,
-		UserGroupAssignmentService $userGroupAssignmentService,
-		MultiFormatUserIdentityLookup $multiFormatUserIdentityLookup,
+		private readonly CentralIdLookupFactory $centralIdLookupFactory,
+		private readonly UserGroupManagerFactory $userGroupManagerFactory,
+		private readonly UserNameUtils $userNameUtils,
+		private readonly UserNamePrefixSearch $userNamePrefixSearch,
+		private readonly UserFactory $userFactory,
+		private readonly GlobalUserGroupAssignmentService $userGroupAssignmentService,
+		private readonly MultiFormatUserIdentityLookup $multiFormatUserIdentityLookup,
 		FormatterFactory $formatterFactory,
 	) {
-		parent::__construct(
-			$userGroupManagerFactory,
-			$userNameUtils,
-			$userNamePrefixSearch,
-			$userFactory,
-			$watchlistManager,
-			$userGroupAssignmentService,
-			$multiFormatUserIdentityLookup,
-			$formatterFactory
-		);
-		$this->mName = 'GlobalUserrights';
+		parent::__construct( 'GlobalUserrights' );
+		$this->statusFormatter = $formatterFactory->getStatusFormatter( $this->getContext() );
 	}
 
 	/**
-	 * Save global user groups changes in the DB
+	 * Manage forms to be shown according to posted data.
+	 * Depending on the submit button used, call a form or a save function.
 	 *
-	 * @param UserIdentity $user
-	 * @param array $add Array of groups to add
-	 * @param array $remove Array of groups to remove
+	 * @param string|null $subPage String if any subpage provided, else null
+	 * @throws UserBlockedError|PermissionsError
+	 */
+	public function execute( $subPage ) {
+		$user = $this->getUser();
+		$request = $this->getRequest();
+		$out = $this->getOutput();
+
+		$this->setHeaders();
+		$this->outputHeader();
+		$this->addModules();
+		$this->addHelpLink( 'Help:Assigning permissions' );
+
+		$targetName = $subPage ?? $request->getText( 'user' );
+		$this->switchForm( $targetName );
+
+		// If the user just viewed this page, without trying to submit, return early
+		// It prevents from showing "nouserspecified" error message on first view
+		if ( $subPage === null && !$request->getCheck( 'user' ) ) {
+			return;
+		}
+
+		// No need to check if $target is non-empty or non-canonical, this is done in the lookup service
+		$fetchedStatus = $this->multiFormatUserIdentityLookup->getUserIdentity( $targetName, $this->getAuthority() );
+		if ( !$fetchedStatus->isOK() ) {
+			$out->addHTML( Html::warningBox(
+				$this->statusFormatter->getMessage( $fetchedStatus )->parse()
+			) );
+			return;
+		}
+
+		$fetchedUser = $fetchedStatus->value;
+		// Phan false positive on Status object - T323205
+		'@phan-var UserIdentity $fetchedUser';
+
+		if ( !$this->userGroupAssignmentService->targetCanHaveUserGroups( $fetchedUser ) ) {
+			// Differentiate between temp accounts and IP addresses. Eventually we might want
+			// to edit the messages so that the same can be shown for both cases.
+			$messageKey = $fetchedUser->isRegistered() ? 'userrights-no-group' : 'nosuchusershort';
+			$out->addHTML( Html::warningBox(
+				$this->msg( $messageKey, $fetchedUser->getName() )->parse()
+			) );
+			return;
+		}
+
+		$this->initialize( $fetchedUser );
+		$this->showMessageOnSuccess();
+
+		if (
+			$request->wasPosted() &&
+			$request->getCheck( 'saveusergroups' ) &&
+			$user->matchEditToken( $request->getVal( 'wpEditToken' ), $targetName )
+		) {
+			/*
+			 * If the user is blocked and they only have "partial" access
+			 * (e.g. they don't have the userrights permission), then don't
+			 * allow them to change any user rights.
+			 */
+			if ( !$this->getAuthority()->isAllowed( 'userrights-global' ) ) {
+				$block = $user->getBlock();
+				if ( $block && $block->isSitewide() ) {
+					throw new UserBlockedError(
+						$block,
+						$user,
+						$this->getLanguage(),
+						$request->getIP()
+					);
+				}
+			}
+
+			$this->checkReadOnly();
+
+			$status = $this->saveUserGroups(
+				$request->getText( 'user-reason' ),
+				$fetchedUser,
+			);
+
+			if ( $status->isOK() ) {
+				$this->setSuccessFlag();
+				$out->redirect( $this->getSuccessURL( $targetName ) );
+				return;
+			} else {
+				// Print an error message and redisplay the form
+				foreach ( $status->getMessages() as $msg ) {
+					$out->addHTML( Html::errorBox(
+						$this->msg( $msg )->parse()
+					) );
+				}
+			}
+		}
+
+		// Show the form (either edit or view)
+		$out->addHTML( $this->buildGroupsForm() );
+		$this->showLogFragment( 'gblrights', 'gblrights' );
+	}
+
+	/**
+	 * Initializes the class with data related to the current target user. This method should be called
+	 * before delegating any operations related to viewing, editing or saving user groups to the parent class.
+	 */
+	private function initialize( UserIdentity $user ): void {
+		$this->targetUser = $user;
+		$this->setTargetName( $user->getName() );
+
+		$uid = $this->centralIdLookupFactory->getLookup()->centralIdFromLocalUser( $user );
+		$wikiId = $user->getWikiId();
+		$userGroupManager = $this->userGroupManagerFactory->getUserGroupManager( $wikiId );
+		$this->explicitGroups = $userGroupManager->listAllGroups();
+		$this->groupMemberships = GlobalUserrightsHooks::getGroupMemberships( $uid );
+		$this->enableWatchUser = false;
+
+		$changeableGroups = $this->userGroupAssignmentService->getChangeableGroups(
+			$this->getAuthority(), $user );
+		$this->setChangeableGroups( $changeableGroups );
+
+		$isLocalWiki = $wikiId === UserIdentity::LOCAL;
+		if ( $isLocalWiki ) {
+			// Listing autopromote groups is only available on the local wiki
+			$this->autopromoteGroups = $userGroupManager->getUserAutopromoteGroups( $this->targetUser );
+			// Set the 'relevant user' in the skin, so it displays links like Contributions,
+			// User logs, UserRights, etc.
+			$this->getSkin()->setRelevantUser( $user );
+		}
+	}
+
+	private function getSuccessURL( string $target ): string {
+		return $this->getPageTitle( $target )->getFullURL();
+	}
+
+	/**
+	 * Save user groups changes in the database.
+	 * Data comes from the editUserGroupsForm() form function
+	 *
 	 * @param string $reason Reason for group change
-	 * @param array $tags Array of change tags to add to the log entry
-	 * @param array $groupExpiries Associative array of (group name => expiry),
-	 *   containing only those groups that are to have new expiry values set
-	 * @return array Tuple of added, then removed groups
-	 * @internal param string $username username
+	 * @param UserIdentity $user The target user
+	 * @return Status
 	 */
-	function doSaveUserGroups( $user, array $add, array $remove, $reason = '',
-		array $tags = [], array $groupExpiries = []
-	) {
-		if ( method_exists( MediaWikiServices::class, 'getCentralIdLookupFactory' ) ) {
-			// MW1.37+
-			$uidLookup = MediaWikiServices::getInstance()->getCentralIdLookupFactory()->getLookup();
-		} else {
-			$uidLookup = CentralIdLookup::factory();
+	protected function saveUserGroups( string $reason, UserIdentity $user ) {
+		// This conflict check doesn't prevent from a situation when two concurrent DB transactions
+		// update the same user's groups, but that's highly unlikely.
+		$userGroupsPrimary = GlobalUserrightsHooks::getGroupMemberships( $user );
+		if ( $this->conflictOccured( $userGroupsPrimary ) ) {
+			return Status::newFatal( 'userrights-conflict' );
 		}
 
-		$uid = $uidLookup->centralIdFromLocalUser( $user );
+		$newGroupsStatus = $this->readGroupsForm();
 
-		$oldUGMs = GlobalUserrightsHooks::getGroupMemberships( $uid );
-		$oldGroups = GlobalUserrightsHooks::getGroups( $uid );
-		$newGroups = $oldGroups;
-
-		// remove then add groups
-		if ( $remove ) {
-			$newGroups = array_diff( $newGroups, $remove );
-
-			foreach ( $remove as $group ) {
-				// whole reason we're redefining this function is to make it use
-				// $this->removeGroup instead of $user->removeGroup, etc.
-				$this->removeGroup( $uid, $group );
-			}
+		if ( !$newGroupsStatus->isOK() ) {
+			return $newGroupsStatus;
 		}
-		if ( $add ) {
-			$newGroups = array_merge( $newGroups, $add );
+		$newGroups = $newGroupsStatus->value;
 
-			foreach ( $add as $group ) {
-				$expiry = isset( $groupExpiries[$group] ) ? $groupExpiries[$group] : null;
-				$this->addGroup( $uid, $group, $expiry );
-			}
-		}
+		// addgroup contains also existing groups with changed expiry
+		[ $addgroup, $removegroup, $groupExpiries ] = $this->splitGroupsIntoAddRemove(
+			$newGroups, $this->groupMemberships );
+		$this->userGroupAssignmentService->saveChangesToUserGroups( $this->getAuthority(), $user, $addgroup,
+			$removegroup, $groupExpiries, $reason );
 
-		// get rid of duplicate groups there might be
-		$newGroups = array_unique( $newGroups );
-		$newUGMs = GlobalUserrightsHooks::getGroupMemberships( $uid );
-
-		// Ensure that caches are cleared
-		if ( method_exists( UserFactory::class, 'invalidateCache' ) ) {
-			// MW 1.41+
-			MediaWikiServices::getInstance()->getUserFactory()->invalidateCache( $user );
-		} else {
-			$user->invalidateCache();
-		}
-
-		wfDebug( 'oldGlobalGroups: ' . print_r( $oldGroups, true ) . "\n" );
-		wfDebug( 'newGlobalGroups: ' . print_r( $newGroups, true ) . "\n" );
-		wfDebug( 'oldGlobalUGMs: ' . print_r( $oldUGMs, true ) . "\n" );
-		wfDebug( 'newGlobalUGMs: ' . print_r( $newUGMs, true ) . "\n" );
-
-		// if anything changed, log it
-		if ( $newGroups != $oldGroups || $newUGMs != $oldUGMs ) {
-			$this->addLogEntry( $user, $oldGroups, $newGroups, $reason, $tags, $oldUGMs, $newUGMs );
-		}
-		return [ $add, $remove ];
-	}
-
-	/**
-	 * Add a user to a group
-	 *
-	 * @param int $uid central Id
-	 * @param string $group name of the group to add
-	 * @param string|null $expiry expiration of the group membership
-	 * @return bool
-	 */
-	function addGroup( $uid, $group, $expiry = null ) {
-		if ( $expiry ) {
-			$expiry = wfTimestamp( TS_MW, $expiry );
-		}
-
-		$gugm = new GlobalUserGroupMembership( $uid, $group, $expiry );
-		if ( !$gugm->insert( true ) ) {
-			return false;
-		}
-
-		return true;
-	}
-
-	/**
-	 * Removes a user from a group
-	 *
-	 * @param int $uid central Id
-	 * @param string $group name of the group
-	 * @return bool
-	 */
-	function removeGroup( $uid, $group ) {
-		$gugm = new GlobalUserGroupMembership( $uid, $group );
-
-		if ( !$gugm || !$gugm->delete() ) {
-			return false;
-		}
-
-		return true;
-	}
-
-	/**
-	 * Add a gblrights log entry
-	 *
-	 * @param UserIdentity $user
-	 * @param array $oldGroups list of groups before the change
-	 * @param array $newGroups list of groups after the change
-	 * @param string $reason reason for the group change
-	 * @param array $tags Change tags for the log entry
-	 * @param array $oldUGMs Associative array of (group name => GlobalUserGroupMembership)
-	 * @param array $newUGMs Associative array of (group name => GlobalUserGroupMembership)
-	 */
-	protected function addLogEntry( $user, array $oldGroups, array $newGroups, $reason,
-		array $tags, array $oldUGMs, array $newUGMs
-	) {
-		// make sure $oldUGMs and $newUGMs are in the same order, and serialise
-		// each UGM object to a simplified array
-		$oldUGMs = array_map( function ( $group ) use ( $oldUGMs ) {
-			return isset( $oldUGMs[$group] ) ?
-				self::serialiseUgmForLog( $oldUGMs[$group] ) :
-				null;
-		}, $oldGroups );
-		$newUGMs = array_map( function ( $group ) use ( $newUGMs ) {
-			return isset( $newUGMs[$group] ) ?
-				self::serialiseUgmForLog( $newUGMs[$group] ) :
-				null;
-		}, $newGroups );
-
-		$logEntry = new ManualLogEntry( 'gblrights', 'rights' );
-		$logEntry->setPerformer( $this->getUser() );
-		$logEntry->setTarget( Title::makeTitle( NS_USER, $user->getName() ) );
-		$logEntry->setComment( $reason );
-		$logEntry->setParameters( [
-			'4::oldgroups' => $oldGroups,
-			'5::newgroups' => $newGroups,
-			'oldmetadata' => $oldUGMs,
-			'newmetadata' => $newUGMs,
-		] );
-		$logid = $logEntry->insert();
-		if ( $tags ) {
-			$logEntry->addTags( $tags );
-		}
-		$logEntry->publish( $logid );
+		return Status::newGood();
 	}
 
 	/**
 	 * Display a HTMLUserTextField form to allow searching for a named user only
 	 */
-	protected function switchForm() {
+	protected function switchForm( string $target ) {
 		$formDescriptor = [
 			'user' => [
 				'class' => HTMLUserTextField::class,
@@ -217,8 +236,8 @@ class GlobalUserrights extends SpecialUserRights {
 				'ipallowed' => true,
 				'iprange' => true,
 				'excludetemp' => true, // Do not show temp users: T341684
-				'autofocus' => $this->mFetchedUser === null,
-				'default' => $this->mTarget,
+				'autofocus' => $target === '',
+				'default' => $target,
 			]
 		];
 
@@ -235,51 +254,66 @@ class GlobalUserrights extends SpecialUserRights {
 			->displayForm( true );
 	}
 
-	/**
-	 * @param UserIdentity $user
-	 * @param array $groups
-	 * @param array $groupMemberships
-	 */
-	protected function showEditUserGroupsForm( $user, $groups, $groupMemberships ) {
-		// override the $groups that is passed, which will be
-		// the user's local groups
-		$groupMemberships = GlobalUserrightsHooks::getGroupMemberships( $user );
-		parent::showEditUserGroupsForm( $user, $groups, $groupMemberships );
+	/** @inheritDoc */
+	protected function getTargetUserToolLinks(): string {
+		$targetWiki = $this->targetUser->getWikiId();
+		$systemUser = $targetWiki === UserIdentity::LOCAL
+			&& $this->userFactory->newFromUserIdentity( $this->targetUser )->isSystemUser();
+
+		// Only add an email link if the user is not a system user
+		$flags = $systemUser ? 0 : Linker::TOOL_LINKS_EMAIL;
+		return Linker::userToolLinks(
+			$this->targetUser->getId( $targetWiki ),
+			$this->targetDisplayName,
+			false, /* default for redContribsWhenNoEdits */
+			$flags
+		);
 	}
 
-	/**
-	 * @return array
-	 */
-	function changeableGroups() {
-		$groups = [
-			'add' => [],
-			'remove' => [],
-			'add-self' => [],
-			'remove-self' => []
-		];
+	/** @inheritDoc */
+	protected function getCurrentUserGroupsText(): string {
+		$groupsText = parent::getCurrentUserGroupsText();
 
-		if ( $this->getUser()->isAllowed( 'userrights-global' ) ) {
-			// all groups can be added globally
-			$all = array_merge( MediaWikiServices::getInstance()->getUserGroupManager()->listAllGroups() );
-			$groups['add'] = $all;
-			$groups['remove'] = $all;
+		// Apart from displaying the groups list, also display a note if this is a system user
+		$systemUser = $this->targetUser->getWikiId() === UserIdentity::LOCAL
+			&& $this->userFactory->newFromUserIdentity( $this->targetUser )->isSystemUser();
+		if ( $systemUser ) {
+			$systemUserNote = $this->msg( 'userrights-systemuser' )
+				->params( $this->targetUser->getName() )
+				->parse();
+			$groupsText .= Html::rawElement(
+				'p',
+				[],
+				$systemUserNote
+			);
 		}
+		return $groupsText;
+	}
 
-		return $groups;
+	/** @inheritDoc */
+	protected function categorizeUserGroupsForDisplay( array $userGroups ): array {
+		return [
+			'userrights-groupsmember' => array_values( $userGroups ),
+			'userrights-groupsmember-auto' => $this->autopromoteGroups,
+		];
 	}
 
 	/**
-	 * Show a rights log fragment for the specified user
-	 * @param UserIdentity $user
-	 * @param OutputPage $output
+	 * Return an array of subpages beginning with $search that this special page will accept.
+	 *
+	 * @param string $search Prefix to search for
+	 * @param int $limit Maximum number of results to return (usually 10)
+	 * @param int $offset Number of results to skip (usually 0)
+	 * @return string[] Matching subpages
 	 */
-	protected function showLogFragment( $user, $output ): void {
-		$log = new LogPage( 'gblrights' );
-		$output->addHTML( Html::element( 'h2', [], $log->getName()->text() ) );
-		LogEventsList::showLogExtract( $output, 'gblrights', Title::makeTitle( NS_USER, $user->getName() ) );
-	}
-
-	protected function getGroupName() {
-		return 'users';
+	public function prefixSearchSubpages( $search, $limit, $offset ) {
+		$search = $this->userNameUtils->getCanonical( $search );
+		if ( !$search ) {
+			// No prefix suggestion for invalid user
+			return [];
+		}
+		// Autocomplete subpage as user list - public to allow caching
+		return $this->userNamePrefixSearch
+			->search( UserNamePrefixSearch::AUDIENCE_PUBLIC, $search, $limit, $offset );
 	}
 }

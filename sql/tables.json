@@ -18,7 +18,7 @@
 				"name": "gug_expiry",
 				"comment": "Text username or IP address",
 				"type": "mwtimestamp",
-				"options": { "notnull": true }
+				"options": { "notnull": false, "default": null, "PlatformOptions": { "allowInfinite": true } }
 			}
 		],
 		"indexes": [

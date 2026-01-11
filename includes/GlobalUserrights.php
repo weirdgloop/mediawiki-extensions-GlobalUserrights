@@ -40,9 +40,6 @@ class GlobalUserrights extends UserGroupsSpecialPage {
 	 */
 	protected UserIdentity $targetUser;
 
-	/** @var list<string> Names of the groups the current target is automatically in */
-	private array $autopromoteGroups = [];
-
 	private StatusFormatter $statusFormatter;
 
 	public function __construct(
@@ -180,8 +177,6 @@ class GlobalUserrights extends UserGroupsSpecialPage {
 
 		$isLocalWiki = $wikiId === UserIdentity::LOCAL;
 		if ( $isLocalWiki ) {
-			// Listing autopromote groups is only available on the local wiki
-			$this->autopromoteGroups = $userGroupManager->getUserAutopromoteGroups( $this->targetUser );
 			// Set the 'relevant user' in the skin, so it displays links like Contributions,
 			// User logs, UserRights, etc.
 			$this->getSkin()->setRelevantUser( $user );
@@ -294,7 +289,6 @@ class GlobalUserrights extends UserGroupsSpecialPage {
 	protected function categorizeUserGroupsForDisplay( array $userGroups ): array {
 		return [
 			'userrights-groupsmember' => array_values( $userGroups ),
-			'userrights-groupsmember-auto' => $this->autopromoteGroups,
 		];
 	}
 

@@ -165,22 +165,16 @@ class GlobalUserrights extends UserGroupsSpecialPage {
 		$this->setTargetName( $user->getName() );
 
 		$uid = $this->centralIdLookupFactory->getLookup()->centralIdFromLocalUser( $user );
-		$wikiId = $user->getWikiId();
-		$userGroupManager = $this->userGroupManagerFactory->getUserGroupManager( $wikiId );
-		$this->explicitGroups = $userGroupManager->listAllGroups();
+		$this->explicitGroups = $this->userGroupManagerFactory->getUserGroupManager()->listAllGroups();
 		$this->groupMemberships = GlobalUserrightsHooks::getGroupMemberships( $uid );
-		$this->enableWatchUser = false;
 
 		$changeableGroups = $this->userGroupAssignmentService->getChangeableGroups(
 			$this->getAuthority(), $user );
 		$this->setChangeableGroups( $changeableGroups );
 
-		$isLocalWiki = $wikiId === UserIdentity::LOCAL;
-		if ( $isLocalWiki ) {
-			// Set the 'relevant user' in the skin, so it displays links like Contributions,
-			// User logs, UserRights, etc.
-			$this->getSkin()->setRelevantUser( $user );
-		}
+		// Set the 'relevant user' in the skin, so it displays links like Contributions,
+		// User logs, UserRights, etc.
+		$this->getSkin()->setRelevantUser( $user );
 	}
 
 	private function getSuccessURL( string $target ): string {
@@ -251,14 +245,12 @@ class GlobalUserrights extends UserGroupsSpecialPage {
 
 	/** @inheritDoc */
 	protected function getTargetUserToolLinks(): string {
-		$targetWiki = $this->targetUser->getWikiId();
-		$systemUser = $targetWiki === UserIdentity::LOCAL
-			&& $this->userFactory->newFromUserIdentity( $this->targetUser )->isSystemUser();
+		$systemUser = $this->userFactory->newFromUserIdentity( $this->targetUser )->isSystemUser();
 
 		// Only add an email link if the user is not a system user
 		$flags = $systemUser ? 0 : Linker::TOOL_LINKS_EMAIL;
 		return Linker::userToolLinks(
-			$this->targetUser->getId( $targetWiki ),
+			$this->targetUser->getId(),
 			$this->targetDisplayName,
 			false, /* default for redContribsWhenNoEdits */
 			$flags
@@ -270,8 +262,7 @@ class GlobalUserrights extends UserGroupsSpecialPage {
 		$groupsText = parent::getCurrentUserGroupsText();
 
 		// Apart from displaying the groups list, also display a note if this is a system user
-		$systemUser = $this->targetUser->getWikiId() === UserIdentity::LOCAL
-			&& $this->userFactory->newFromUserIdentity( $this->targetUser )->isSystemUser();
+		$systemUser = $this->userFactory->newFromUserIdentity( $this->targetUser )->isSystemUser();
 		if ( $systemUser ) {
 			$systemUserNote = $this->msg( 'userrights-systemuser' )
 				->params( $this->targetUser->getName() )

@@ -32,7 +32,7 @@ class GlobalUserrightsHooks {
 					$uidLookup = CentralIdLookup::factory();
 				}
 
-				$uid = $uidLookup->centralIdFromLocalUser( $user );
+				$uid = $uidLookup->centralIdFromLocalUser( $user, CentralIdLookup::AUDIENCE_RAW );
 			} else {
 				// Anonymous users cannot have any user group.
 				// Calling central ID lookup for them may run into infinite loops (T395176).
